@@ -24,7 +24,8 @@ class TradeBS:
             self.loss = True
         if profit > 0:
             self.gain = True
-        self.profit = profit
+        self.profit = 0.99925 * profit
+        self.close = datetime.datetime.now.timestamp()
 
     def check_id(self, query):
         if query == self.name:
@@ -40,7 +41,8 @@ class TradeBS:
             "profit": self.profit,
             "loss": self.loss,
             "gain": self.gain,
-            "init": self.date
+            "init": str(self.date),
+	    "end" : str(self.close)
         }
 
 class TradeSSSBSS(TradeBS):
@@ -55,7 +57,7 @@ class TradeSSSBSS(TradeBS):
     def close(self, close_out):
         self.close_out = close_out
         diff = self.buy_in - self.close_out
-        profit = round(diff * self.shares, 2)
+        profit = 0.99925 * round(diff * self.shares, 2)
         self.loss = False
         self.gain = False
         if profit < 0:
@@ -63,6 +65,7 @@ class TradeSSSBSS(TradeBS):
         if profit > 0:
             self.gain = True
         self.profit = profit
+        self.close = datetime.datetime.now().timestamp()
 
 class PaperCut:
     """
@@ -75,7 +78,7 @@ class PaperCut:
         self.Account = {
             "equity" : {
                 "initial": initial,
-                "current": 0.0
+                "current": initial
             },
             "trades" : {
                 "open" : None,
@@ -89,11 +92,11 @@ class PaperCut:
         self.Account = {
             "equity" : {
                 "initial": initial,
-                "current": 0.0
+                "current": initial
             },
             "trades" : {
                 "open" : None,
-                "closed" :[],
+                "closed" : [],
             }
 
         }
@@ -101,11 +104,11 @@ class PaperCut:
 
     #regular buying
     def openBS(self, buy_in, shares, id):
-        self.Account["trades"]["open"] = (TradeBS(buy_in, shares, id))
+        self.Account["trades"]["open"] = TradeBS(buy_in, shares, id)
 
     def closeBS(self, close_out):
-        self.Account["trades"]["closed"].append(self.Account["trades"]["open"].close(close_out))
-        self.Account["trades"]["open"] = None
+        self.Account["trades"]["open"].close(close_out)
+        self.Account["trades"]["closed"].append(self.Account["trades"]["open"])
         self.recompute_balance()
 
     #short selling
@@ -113,8 +116,8 @@ class PaperCut:
         self.Account["trades"]["open"]= TradeSSSBSS(buy_in, shares, id)
 
     def closeBSS(self, close_out):
-        self.Account["trades"]["closed"].append(self.Account["trades"]["open"].close(close_out))
-        self.Account["trades"]["open"] = None
+        self.Account["trades"]["open"].close(close_out)
+        self.Account["trades"]["closed"].append(self.Account["trades"]["open"])
         self.recompute_balance()
 
     def recompute_balance(self):
@@ -125,6 +128,13 @@ class PaperCut:
     def get_free_cash(self):
         self.recompute_balance()
         return self.Account["equity"]["current"]
+
+    def get_max_shares(self, price):
+        return self.Account["equity"]["current"] / price
+
+    def data_backup(self):
+        trades = pd.DataFrame([x.info() for x in self.Account["trades"]["closed"]])
+        trades.to_csv("trade-backup.csv")
 
     def algo_statistics(self):
         profit, success, fail, stag, volume = [0,0,0,0,0]
@@ -149,13 +159,15 @@ class PaperCut:
             "success" : success,
             "fail": fail,
             "stagnant": stag,
-            "Gains": success/len(self.Account["trades"]["closed"]),
-            "losses": fail/len(self.Account["trades"]["closed"])
+            "Gains %": str(round(success/len(self.Account["trades"]["closed"]), 2) * 100) + " %",
+            "losses %": str(round(fail/len(self.Account["trades"]["closed"]), 2) * 100) + " %"
         }
 
-    def end(self):
+    def end(self, file_name = "test.csv"):
         self.recompute_balance()
-        print(self.algo_statistics())
-        if len(self.Account["trades"]["closed"]) == self.max_trades:
-            pd.DataFrame(self.Account["trades"]["closed"]).to_csv("trades.csv")
+        if len(self.Account["trades"]["closed"]) >= self.max_trades:
+            trades = pd.DataFrame([x.info() for x in self.Account["trades"]["closed"] ])
+            print(trades.head(20))
+            trades.to_csv(file_name)
+            print(self.algo_statistics())
             exit("Exitting Paper Environment")
